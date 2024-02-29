@@ -1,0 +1,106 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+class FuzzySystem:
+    def __init__(self, df):
+        self.df = df
+        self.mt3_values = {"min_mt3": df["MT3"].min(), "max_mt3": df["MT3"].max(), "avg_mt3": df["MT3"].mean()}
+        self.rng_values = {"min_rng": df["Rng"].min(), "max_rng": df["Rng"].max(), "avg_rng": df["Rng"].mean()}
+        self.y_true_values = {"min_y": df["Y_True"].min(), "max_y": df["Y_True"].max(), "avg_y": df["Y_True"].mean()}
+        self.prediction_list = []
+        self.accuracy_list = []
+
+    def rules(self, mt3_data, rng_data):
+        rule_bank = {"ss": "s", "sm": "h", "sh": "m", "ms": "m",
+                     "mm": "m", "mh": "h", "hs": "h", "hm": "m", "hh": "h"}
+        output_data = mt3_data + rng_data
+        y_true_data = rule_bank.get(output_data, "")
+        if y_true_data == "s":
+            return self.y_true_values.get("min_y", 0)
+        elif y_true_data == "m":
+            return self.y_true_values.get("avg_y", 0)
+        return self.y_true_values.get("max_y", 0)
+
+    def calculate_pv(self, min_value, max_value, avg_value, input_value):
+        pv_values = {}
+        if input_value >= min_value and input_value <= avg_value:
+            centroid = (avg_value + min_value) / 2
+            pv_values["s"] = min((input_value - min_value) / (avg_value - min_value),
+                                 (avg_value - input_value) / (avg_value - min_value))
+            pv_values["m"] = max((input_value - min_value) / (avg_value - min_value),
+                                 (avg_value - input_value) / (avg_value - min_value))
+        elif input_value >= avg_value and input_value <= max_value:
+            centroid = (max_value + avg_value) / 2
+            pv_values["m"] = min((input_value - avg_value) / (max_value - avg_value),
+                                 (max_value - input_value) / (max_value - avg_value))
+            pv_values["h"] = max((input_value - avg_value) / (max_value - avg_value),
+                                 (max_value - input_value) / (max_value - avg_value))
+        return pv_values
+
+    def plot_triangular_function(self, min_value, avg_value, max_value, variable_name):
+        x = np.linspace(min_value - 1, max_value + 1, 100)
+        y_min = np.zeros_like(x)
+        y_avg = np.zeros_like(x)
+        y_max = np.zeros_like(x)
+
+        y_min[(x >= min_value) & (x <= avg_value)] = (x[(x >= min_value) & (x <= avg_value)] - min_value) / (avg_value - min_value)
+        y_avg[(x >= min_value) & (x <= max_value)] = 1.0
+        y_max[(x >= avg_value) & (x <= max_value)] = (max_value - x[(x >= avg_value) & (x <= max_value)]) / (max_value - avg_value)
+
+        plt.plot(x, y_min, label=f'Minimum {variable_name} Triangular Function')
+        plt.plot(x, y_avg, label=f'Average {variable_name} Triangular Function')
+        plt.plot(x, y_max, label=f'Maximum {variable_name} Triangular Function')
+        plt.xlabel(variable_name)
+        plt.ylabel('Membership Degree')
+        plt.title(f'Triangular Functions for {variable_name}')
+        plt.legend()
+        plt.show()
+
+    def calculate_accuracy(self):
+        for p in self.df.index:
+            input_values = {"mt3": self.df["MT3"][p], "rng": self.df["Rng"][p], "y_true": self.df["Y_True"][p]}
+            try:
+                y_true_value = float(input_values["y_true"])
+            except ValueError:
+                print(f"Skipping row {p + 2} due to non-numeric 'Y_True' value.")
+                continue
+
+            mt3_pv_values = self.calculate_pv(self.mt3_values["min_mt3"], self.mt3_values["max_mt3"],
+                                             self.mt3_values["avg_mt3"], input_values["mt3"])
+            rng_pv_values = self.calculate_pv(self.rng_values["min_rng"], self.rng_values["max_rng"],
+                                             self.rng_values["avg_rng"], input_values["rng"])
+            y_pred = sum(mt3_pv_values[mt3_data] * rng_pv_values[rng_data] * self.rules(mt3_data, rng_data)
+                         for mt3_data in mt3_pv_values for rng_data in rng_pv_values
+                         if self.rules(mt3_data, rng_data))
+
+            self.prediction_list.append(y_pred)
+            accuracy = 100 - ((abs(y_pred - y_true_value) / y_true_value) * 100)
+            self.accuracy_list.append(accuracy)
+
+        self.df["y_prediction"] = self.prediction_list
+        self.df["accuracy"] = self.accuracy_list
+        avg_accuracy = self.df["accuracy"].mean()
+        print(f"Successfully calculated the predicted Y {self.prediction_list}")
+        return f"Successfully calculated the accuracy {self.accuracy_list}"
+
+    def save_to_excel(self, output_file):
+        self.df.to_excel(output_file, index=False)
+        print(f"Results saved to {output_file}")
+
+def main():
+    df = pd.read_excel("C:\\Users\\saipr\\Downloads\\for graph(testing).xlsx")
+    fuzzy_system = FuzzySystem(df)
+
+    # Plotting triangular functions for MT3 and Rng
+    fuzzy_system.plot_triangular_function(fuzzy_system.mt3_values["min_mt3"], fuzzy_system.mt3_values["avg_mt3"], fuzzy_system.mt3_values["max_mt3"], 'MT3')
+    fuzzy_system.plot_triangular_function(fuzzy_system.rng_values["min_rng"], fuzzy_system.rng_values["avg_rng"], fuzzy_system.rng_values["max_rng"], 'Rng')
+
+    result = fuzzy_system.calculate_accuracy()
+    output_file_path = "C:\\Users\\saipr\\Downloads\\for graph(testing).xlsx"
+    
+    fuzzy_system.save_to_excel(output_file_path)
+    print(result)
+
+if __name__ == "__main__":
+    main()
