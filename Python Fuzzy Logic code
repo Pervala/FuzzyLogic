@@ -1,106 +1,86 @@
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
+import asyncio
+import xlsxwriter 
+from openpyxl import load_workbook
+from openpyxl import Workbook
+import os
 
-class FuzzySystem:
-    def __init__(self, df):
-        self.df = df
-        self.mt3_values = {"min_mt3": df["MT3"].min(), "max_mt3": df["MT3"].max(), "avg_mt3": df["MT3"].mean()}
-        self.rng_values = {"min_rng": df["Rng"].min(), "max_rng": df["Rng"].max(), "avg_rng": df["Rng"].mean()}
-        self.y_true_values = {"min_y": df["Y_True"].min(), "max_y": df["Y_True"].max(), "avg_y": df["Y_True"].mean()}
-        self.prediction_list = []
-        self.accuracy_list = []
+async def rules(x5_key, x6_key, x49_key, x54_key, y_vals):   
+    if x5_key == 's' and x6_key == 's' and x49_key == 's' and x54_key == 'h':
+        return y_vals.get("min_diameter", 0)
+    else:
+        return y_vals.get("avg_diameter", 0)
 
-    def rules(self, mt3_data, rng_data):
-        rule_bank = {"ss": "s", "sm": "h", "sh": "m", "ms": "m",
-                     "mm": "m", "mh": "h", "hs": "h", "hm": "m", "hh": "h"}
-        output_data = mt3_data + rng_data
-        y_true_data = rule_bank.get(output_data, "")
-        if y_true_data == "s":
-            return self.y_true_values.get("min_y", 0)
-        elif y_true_data == "m":
-            return self.y_true_values.get("avg_y", 0)
-        return self.y_true_values.get("max_y", 0)
+async def calculateMU(min_value, max_value, avg_value, row_value):
+    mu_values = {}
+    if row_value >= min_value and row_value <= avg_value:
+        centroid = (avg_value + min_value) / 2
+        mu_1 = (row_value - min_value) / (avg_value - min_value)
+        mu_2 = (avg_value - row_value) / (avg_value - min_value)
+        if row_value > centroid:
+            mu_values["s"] = min(mu_1, mu_2)
+            mu_values["m"] = max(mu_1, mu_2)
+        elif row_value < centroid:
+            mu_values["s"] = max(mu_1, mu_2)
+            mu_values["m"] = min(mu_1, mu_2)
+        else:
+            mu_values["s"] = 0.5
+            mu_values["m"] = 0.5
+    if row_value >= avg_value and row_value <= max_value:
+        centroid = (max_value + avg_value) / 2
+        mu_1 = (row_value - avg_value) / (max_value - avg_value)
+        mu_2 = (max_value - row_value) / (max_value - avg_value)
+        if row_value > centroid:
+            mu_values["m"] = min(mu_1, mu_2)
+            mu_values["h"] = max(mu_1, mu_2)
+        elif row_value < centroid:
+            mu_values["m"] = max(mu_1, mu_2)
+            mu_values["h"] = min(mu_1, mu_2)
+        else:
+            mu_values["m"] = 0.5
+            mu_values["h"] = 0.5
+    return mu_values
 
-    def calculate_pv(self, min_value, max_value, avg_value, input_value):
-        pv_values = {}
-        if input_value >= min_value and input_value <= avg_value:
-            centroid = (avg_value + min_value) / 2
-            pv_values["s"] = min((input_value - min_value) / (avg_value - min_value),
-                                 (avg_value - input_value) / (avg_value - min_value))
-            pv_values["m"] = max((input_value - min_value) / (avg_value - min_value),
-                                 (avg_value - input_value) / (avg_value - min_value))
-        elif input_value >= avg_value and input_value <= max_value:
-            centroid = (max_value + avg_value) / 2
-            pv_values["m"] = min((input_value - avg_value) / (max_value - avg_value),
-                                 (max_value - input_value) / (max_value - avg_value))
-            pv_values["h"] = max((input_value - avg_value) / (max_value - avg_value),
-                                 (max_value - input_value) / (max_value - avg_value))
-        return pv_values
+async def calculateAccuracy():
+    try:
+        df = pd.read_excel("IME _670_capstone-stage-2.xlsx")
+        x5_values = {"min_x5": df["x5"].min(), "max_x5": df["x5"].max(), "avg_x5": df["x5"].mean()}
+        x6_values = {"min_x6": df["x6"].min(), "max_x6": df["x6"].max(), "avg_x6": df["x6"].mean()}
+        x49_values = {"min_x49": df["x49"].min(), "max_x49": df["x49"].max(), "avg_x49": df["x49"].mean()}
+        x54_values = {"min_x54": df["x54"].min(), "max_x54": df["x54"].max(), "avg_x54": df["x54"].mean()}
+        diameter_values = {"min_diameter": df["Diameter"].min(), "max_diameter": df["Diameter"].max(), "avg_diameter": df["Diameter"].mean()}
+        accuracy_list = []
+        prediction_list = []
+        for p in df.index:
+            row_values = {"x5": df["x5"][p], "x6": df["x6"][p], "x49": df["x49"][p], "x54": df["x54"][p], "diameter": df["Diameter"][p]}
+            x5_mu_values = await calculateMU(x5_values["min_x5"], x5_values["max_x5"], x5_values["avg_x5"], row_values["x5"])
+            x6_mu_values = await calculateMU(x6_values["min_x6"], x6_values["max_x6"], x6_values["avg_x6"], row_values["x6"])
+            x49_mu_values = await calculateMU(x49_values["min_x49"], x49_values["max_x49"], x49_values["avg_x49"], row_values["x49"])
+            x54_mu_values = await calculateMU(x54_values["min_x54"], x54_values["max_x54"], x54_values["avg_x54"], row_values["x54"])
+            # diameter_mu_values = await calculateMU(diameter_values["min_diameter"], diameter_values["max_diameter"], diameter_values["avg_diameter"], row_values["diameter"])
+            y_pred = 0
+            for x5_key, x5_val in x5_mu_values.items():
+                for x6_key, x6_val in x6_mu_values.items():
+                    for x49_key, x49_val in x49_mu_values.items():
+                        for x54_key, x54_val in x54_mu_values.items():
+                            y_1 = await rules(x5_key, x6_key, x49_key, x54_key, diameter_values)
+                            
+                            if y_1:
+                                y_pred += x5_val * x6_val * x49_val * x54_val * y_1
+                                
+            prediction_list.append(y_pred)
+            accuracy = 100 - ((abs(y_pred - row_values["diameter"]) / row_values["diameter"]) * 100)
+            accuracy_list.append(accuracy)
+        
+        df["y_prediction"] = prediction_list
+        df["accuracy"] = accuracy_list
+        df.to_excel("group-project-accuracy.xlsx", index=False)
+        average_accuracy = df["accuracy"].mean()
+        print(f"Successfully calculated the average accuracy is {average_accuracy}")
+        return f"Successfully calculated the average accuracy is {average_accuracy}"
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return f"An error occurred: {e}"
 
-    def plot_triangular_function(self, min_value, avg_value, max_value, variable_name):
-        x = np.linspace(min_value - 1, max_value + 1, 100)
-        y_min = np.zeros_like(x)
-        y_avg = np.zeros_like(x)
-        y_max = np.zeros_like(x)
+asyncio.run(calculateAccuracy())
 
-        y_min[(x >= min_value) & (x <= avg_value)] = (x[(x >= min_value) & (x <= avg_value)] - min_value) / (avg_value - min_value)
-        y_avg[(x >= min_value) & (x <= max_value)] = 1.0
-        y_max[(x >= avg_value) & (x <= max_value)] = (max_value - x[(x >= avg_value) & (x <= max_value)]) / (max_value - avg_value)
-
-        plt.plot(x, y_min, label=f'Minimum {variable_name} Triangular Function')
-        plt.plot(x, y_avg, label=f'Average {variable_name} Triangular Function')
-        plt.plot(x, y_max, label=f'Maximum {variable_name} Triangular Function')
-        plt.xlabel(variable_name)
-        plt.ylabel('Membership Degree')
-        plt.title(f'Triangular Functions for {variable_name}')
-        plt.legend()
-        plt.show()
-
-    def calculate_accuracy(self):
-        for p in self.df.index:
-            input_values = {"mt3": self.df["MT3"][p], "rng": self.df["Rng"][p], "y_true": self.df["Y_True"][p]}
-            try:
-                y_true_value = float(input_values["y_true"])
-            except ValueError:
-                print(f"Skipping row {p + 2} due to non-numeric 'Y_True' value.")
-                continue
-
-            mt3_pv_values = self.calculate_pv(self.mt3_values["min_mt3"], self.mt3_values["max_mt3"],
-                                             self.mt3_values["avg_mt3"], input_values["mt3"])
-            rng_pv_values = self.calculate_pv(self.rng_values["min_rng"], self.rng_values["max_rng"],
-                                             self.rng_values["avg_rng"], input_values["rng"])
-            y_pred = sum(mt3_pv_values[mt3_data] * rng_pv_values[rng_data] * self.rules(mt3_data, rng_data)
-                         for mt3_data in mt3_pv_values for rng_data in rng_pv_values
-                         if self.rules(mt3_data, rng_data))
-
-            self.prediction_list.append(y_pred)
-            accuracy = 100 - ((abs(y_pred - y_true_value) / y_true_value) * 100)
-            self.accuracy_list.append(accuracy)
-
-        self.df["y_prediction"] = self.prediction_list
-        self.df["accuracy"] = self.accuracy_list
-        avg_accuracy = self.df["accuracy"].mean()
-        print(f"Successfully calculated the predicted Y {self.prediction_list}")
-        return f"Successfully calculated the accuracy {self.accuracy_list}"
-
-    def save_to_excel(self, output_file):
-        self.df.to_excel(output_file, index=False)
-        print(f"Results saved to {output_file}")
-
-def main():
-    df = pd.read_excel("C:\\Users\\saipr\\Downloads\\for graph(testing).xlsx")
-    fuzzy_system = FuzzySystem(df)
-
-    # Plotting triangular functions for MT3 and Rng
-    fuzzy_system.plot_triangular_function(fuzzy_system.mt3_values["min_mt3"], fuzzy_system.mt3_values["avg_mt3"], fuzzy_system.mt3_values["max_mt3"], 'MT3')
-    fuzzy_system.plot_triangular_function(fuzzy_system.rng_values["min_rng"], fuzzy_system.rng_values["avg_rng"], fuzzy_system.rng_values["max_rng"], 'Rng')
-
-    result = fuzzy_system.calculate_accuracy()
-    output_file_path = "C:\\Users\\saipr\\Downloads\\for graph(testing).xlsx"
-    
-    fuzzy_system.save_to_excel(output_file_path)
-    print(result)
-
-if __name__ == "__main__":
-    main()
