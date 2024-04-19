@@ -1,0 +1,50 @@
+import pandas as pd
+from sklearn.cluster import KMeans
+
+# Import training data from an Excel spreadsheet.
+training_data_set = pd.read_excel("C:/Users/iliya/Downloads/IME 670 capstone project Copy.xlsx", sheet_name="IME 670  Training data set")
+
+# Import testing data from an Excel spreadsheet.
+testing_data_set = pd.read_excel("C:/Users/iliya/Downloads/IME 670 capstone project Copy.xlsx", sheet_name="IME 670 Testing data set")
+
+# Select features for clustering
+training_cluster_column = training_data_set[['x5', 'x6', 'x49', 'x54']]
+testing_cluster_column = testing_data_set[['x5', 'x6', 'x49', 'x54']]
+
+# Choose the number of clusters (K)
+k = 30
+
+# Initialize the KMeans model
+kmeans = KMeans(n_clusters=k, random_state=42)
+
+# Fit the model to your training data and get cluster labels
+cluster_labels_train = kmeans.fit_predict(training_cluster_column)
+
+# Fit the model to your testing data and get cluster labels
+cluster_labels_test = kmeans.predict(testing_cluster_column)
+
+# Add cluster labels to the DataFrames
+training_data_set['Cluster'] = cluster_labels_train
+testing_data_set['Cluster'] = cluster_labels_test
+
+# Calculate mean diameter for each cluster in testing data
+cluster_means_train = testing_data_set.groupby('Cluster')['Diameter'].mean()
+
+# Assign the mean diameter of the cluster to each data point in testing data
+testing_data_set['Predicted_Diameter'] = testing_data_set['Cluster'].map(cluster_means_train)
+
+# Print the DataFrame with predicted diameters for testing data
+print(testing_data_set[['Diameter', 'Predicted_Diameter']])
+
+# Print the DataFrame with cluster labels for testing data
+print(testing_data_set[['Cluster']])
+
+# Calculate accuracies
+testing_data_set['Accuracies'] = 100 - (abs(testing_data_set['Predicted_Diameter'] - testing_data_set['Diameter']) / testing_data_set['Diameter']) * 100
+
+# Save the DataFrame to Excel
+#testing_data_set.to_excel("C:/Users/iliya/Downloads/myTest001.xlsx", index=False)
+
+# Save the DataFrame to Excel with specific columns
+columns_to_save = ['x5', 'x6', 'x49', 'x54', 'Diameter', 'Cluster', 'Predicted_Diameter', 'Accuracies']
+testing_data_set[columns_to_save].to_excel("C:/Users/iliya/Downloads/myTest001.xlsx", index=False)
